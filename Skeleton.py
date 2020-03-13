@@ -15,17 +15,33 @@ from scipy.io import wavfile
 
 #VIDEO INFO
 
-videofile_path = '/home/user/Documents/Skeleton/'
+videofile_path = './'
 videofile_name = 'L5a_bash_expansions_22.03.2018'
 videofile_ext = '.webm'
 
+videofile = sys.argv[1]
+for i in range(len(videofile) - 1, 0):
+    if videofile[i] == '.':
+        videofile_ext = videofile[i:]
+        videofile_name = videofile[:i]
+        break
+
+for i in range(len(videofile_name), 0):
+    if videofile_name[i] == '/':
+        videofile_path = videofile_name[:i]
+        videofile_name = videofile_name[i:]
+        break
+
 #MAGICS
 
-min_sound = 2300
+min_sound = 2100
 
 min_time = 0.4
 
-adjust_time = 2.3
+adjust_time = 1.6
+
+if len(sys.argv) >= 3:
+    min_sound = int(sys.argv[2])
 
 #INIT
 
@@ -92,7 +108,7 @@ final_cuts = []
 mid_cuts.append(cuts[0])
 
 for i in range(len(cuts) - 1):
-    if cuts[i + 1][0] - mid_cuts[-1][1] < min_time + 0.2:
+    if cuts[i + 1][0] - mid_cuts[-1][1] < min_time:
         mid_cuts[-1][1] = cuts[i + 1][1]
     else:
         mid_cuts.append(cuts[i + 1])
@@ -106,8 +122,8 @@ for cut in mid_cuts:
 f = open(videofile_path + videofile_name + '_specs.txt', 'w+')
 for cut in final_cuts:
     f.write('file \'' + videofile_name + '.MTS' + '\'\n')
-    f.write('inpoint %.2f\n' % (cut[0] - min_time / 4))
-    f.write('outpoint %.2f\n' % (cut[1] + min_time / 4))
+    f.write('inpoint %.2f\n' % (cut[0] + adjust_time - min_time / 5))
+    f.write('outpoint %.2f\n' % (cut[1] + adjust_time + min_time / 5))
 
 f.close()
 
