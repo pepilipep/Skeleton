@@ -1,4 +1,3 @@
-import ffmpeg
 import subprocess
 
 import numpy as np
@@ -19,45 +18,37 @@ videofile_path = './'
 videofile_name = 'L5a_bash_expansions_22.03.2018'
 videofile_ext = '.webm'
 
+temp_dir = 'temp/'
+
 videofile = sys.argv[1]
-for i in range(len(videofile) - 1, 0):
+for i in range(len(videofile) - 1, -1, -1):
     if videofile[i] == '.':
         videofile_ext = videofile[i:]
         videofile_name = videofile[:i]
         break
 
-for i in range(len(videofile_name), 0):
+for i in range(len(videofile_name) - 1, -1, -1):
     if videofile_name[i] == '/':
         videofile_path = videofile_name[:i]
         videofile_name = videofile_name[i:]
         break
 
+print(videofile_path, videofile_name, videofile_ext)
+
 #MAGICS
 
-min_sound = 2100
+min_sound = 0.055
 
-min_time = 0.4
-
-adjust_time = 1.6
+min_time = 0.15
 
 if len(sys.argv) >= 3:
     min_sound = int(sys.argv[2])
 
 #INIT
 
-#make the file in mst
-
-
-try:
-    f = open(videofile_path + videofile_name + '.MTS')
-    f.close()
-    print('mts file already exists')
-except IOError:
-    subprocess.call(
-        ['ffmpeg', '-i', videofile_path + videofile_name + videofile_ext, '-q', '0', videofile_path + videofile_name + '.MTS']
-    )
-
-
+subprocess.call(
+    ['mkdir', videofile_path + temp_dir]
+)
 
 #get info
 
@@ -72,11 +63,21 @@ print(fps, num_frames, time_video)
 #get audio
 
 subprocess.call(
-    ['ffmpeg', '-i', videofile_path + videofile_name + '.MTS', '-codec:a', 'pcm_s16le', '-ac', '1', videofile_path + videofile_name + '.wav'])
+    ['ffmpeg', '-i', videofile_path + videofile_name + videofile_ext, '-codec:a', 'pcm_s16le', '-ac', '1', videofile_path + temp_dir + videofile_name + '.wav'])
 print('file saved')
 
-fs, data = wavfile.read(videofile_path + videofile_name + '.wav')
+fs, data = wavfile.read(videofile_path + temp_dir + videofile_name + '.wav')
+maxaudio_volume = np.max(data)
+
 sounds_per_frame = math.ceil(data.shape[0] / num_frames)
+
+#get frames as images
+
+subprocess.call(
+    ['ffmpeg', '-i', videofile_path + videofile_name + videofile_ext, '-qscale:v', '3', videofile_path + temp_dir + '$old_frames%06d.jpg', '-hide_banner']
+)
+
+#ffmpeg -i file.mpg -r 1/1 $filename%03d.jpg
 
 #algorithm
 
@@ -88,19 +89,19 @@ sound_split_by_frame = np.absolute(np.reshape(data, (num_frames, sounds_per_fram
 
 total_sound_by_frames = np.max(sound_split_by_frame, axis=-1)
 
-gone = total_sound_by_frames < min_sound
+wanted = total_sound_by_frames >= min_sound * maxaudio_volume
 
-print(np.sum(gone))
+print(np.sum(wanted))
 
 cuts = []
-if not gone[0]:
+if wanted[0]:
     cuts.append([0, 0])
 
-for i in range(len(gone[1:])):
-    if not gone[i] and not gone[i - 1]:
-        cuts[-1][1] = (i + 1) * time_video / num_frames
-    elif not gone[i]:
-        cuts.append([i * time_video / num_frames, (i + 1) * time_video / num_frames])
+for i in range(len(wanted[1:])):
+    if wanted[i] and wanted[i - 1]:
+        cuts[-1][1] = i
+    elif wanted[i]:
+        cuts.append([i, i])
 
 mid_cuts = []
 final_cuts = []
@@ -108,58 +109,50 @@ final_cuts = []
 mid_cuts.append(cuts[0])
 
 for i in range(len(cuts) - 1):
-    if cuts[i + 1][0] - mid_cuts[-1][1] < min_time:
+    if cuts[i + 1][0] - mid_cuts[-1][1] < min_time * fps:
         mid_cuts[-1][1] = cuts[i + 1][1]
     else:
         mid_cuts.append(cuts[i + 1])
 
 for cut in mid_cuts:
-    if cut[1] - cut[0] >= min_time:
+    if cut[1] - cut[0] >= min_time * fps:
         final_cuts.append(cut)
 
-#write cuts in file
+# find wanted frames
 
-f = open(videofile_path + videofile_name + '_specs.txt', 'w+')
+normal_speed_video = np.full(num_frames, False)
+high_speed_video = np.full(num_frames, True)
+
 for cut in final_cuts:
-    f.write('file \'' + videofile_name + '.MTS' + '\'\n')
-    f.write('inpoint %.2f\n' % (cut[0] + adjust_time - min_time / 5))
-    f.write('outpoint %.2f\n' % (cut[1] + adjust_time + min_time / 5))
+    for frame in range(cut[0], cut[1] + 1):
+        normal_speed_video[frame] = True
+        high_speed_video[frame] = False
 
-f.close()
+unwanted_frames = np.extract(high_speed_video, range(num_frames))
 
-#cut and concatenate the segments
+# build new audio frames
+
+newAudio = np.extract(np.repeat(normal_speed_video, sounds_per_frame), data)
+
+wavfile.write(videofile_path + temp_dir + 'newAudio.wav', fs, newAudio)
+
+# build new video frames
+
+for old_id in unwanted_frames:
+    subprocess.call(
+        ['rm', videofile_path + temp_dir + '$old_frames%06d.jpg' %(old_id + 1)]
+    )
+
+# build remastered video
 
 subprocess.call(
-    ['ffmpeg', '-f', 'concat', '-i', videofile_path + videofile_name + '_specs.txt', '-c', 'copy', videofile_path + videofile_name + '_remastered.MTS']
+    ['ffmpeg', '-framerate', str(fps), '-pattern_type', 'glob', '-i', videofile_path + temp_dir + '$old_frames*.jpg', '-i', videofile_path + temp_dir + 'newAudio.wav', '-strict', '-2', videofile_path + videofile_name + '_remastered' + videofile_ext]
 )
 
-
-#ffmpeg -f concat -i input.txt -c copy -fflags +genpts -avoid_negative_ts make_zero output.mp4
+# ffmpeg -framerate fps -i temp/$new_frames%06d.jpg -i temp/newAudio.wav -strict -2 "blank_remastered.mp4"
 
 #remove useless files
 
 subprocess.call(
-    ['rm', videofile_path + videofile_name + '.wav']
+    ['rm', '-r', '-I', videofile_path + temp_dir]
 )
-
-subprocess.call(
-   ['rm', videofile_path + videofile_name + '_specs.txt']
-)
-
-
-
-# cuts_string = "select=\'"
-# for i in range(len(cuts)):
-#     cuts_string += 'between(t,' + str(round(cuts[i][0], 2)) + ',' + str(round(cuts[i][1], 2)) + ')'
-#     if i < len(cuts) - 1:
-#         cuts_string += '+'
-
-# cuts_string += '\''
-
-#subprocess.call(
-#    ['ffmpeg', '-i', videofile_path + videofile_name + videofile_ext, '-vf', cuts_string + ',setpts=N/FRAME_RATE/TB', '-af', 'a' + cuts_string + ',asetpts=N/SR/TB', videofile_path + videofile_name + "_remastered.mp4"]
-#)
-
-#ffmpeg -i video -vf "select='between(t,4,6.5)+between(t,17,26)+between(t,74,91)',setpts=N/FRAME_RATE/TB" 
-# -af "aselect='between(t,4,6.5)+between(t,17,26)+between(t,74,91)',asetpts=N/SR/TB" out.mp4
-
