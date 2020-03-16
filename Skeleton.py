@@ -12,15 +12,32 @@ import math
 
 from scipy.io import wavfile
 
+import argparse
+
+# parse arguments
+
+parser = argparse.ArgumentParser(description='Run silent and loud parts of a video at different speeds')
+parser.add_argument('-i', '--input', type=str, help='input video file', required=True)
+parser.add_argument('-d', '--temp_dir', type=str, default='temp/', help='name of temporary directory to save temporary files (no need to already exist)')
+parser.add_argument('-m', '--min_sound', type=float, default=0.06, help='a number between 0 and 1. the threshold for classifying as silent/loud')
+parser.add_argument('-t', '--min_time', type=float, default=0.15, help='sequences of frames shorter than this will be considered of the opposite type')
+parser.add_argument('-f', '--fps', type=float, help='fps of the video. default is the program figuring it out itself')
+parser.add_argument('-q', '--frame_quality', type=int, default=3, help='an integer between 1 and 31. 1 is highest quality, 31 is lowest')
+
+args = parser.parse_args()
+
 #VIDEO INFO
 
 videofile_path = './'
-videofile_name = 'L5a_bash_expansions_22.03.2018'
-videofile_ext = '.webm'
+videofile_name = ''
+videofile_ext = ''
 
-temp_dir = 'temp/'
+videofile = args.input
 
-videofile = sys.argv[1]
+temp_dir = args.temp_dir
+if temp_dir[-1] != '/':
+    temp_dir += '/'
+
 for i in range(len(videofile) - 1, -1, -1):
     if videofile[i] == '.':
         videofile_ext = videofile[i:]
@@ -37,12 +54,9 @@ print(videofile_path, videofile_name, videofile_ext)
 
 #MAGICS
 
-min_sound = 0.055
+min_sound = args.min_sound
 
-min_time = 0.15
-
-if len(sys.argv) >= 3:
-    min_sound = int(sys.argv[2])
+min_time = args.min_time
 
 #INIT
 
@@ -55,6 +69,8 @@ subprocess.call(
 
 cv2video = cv2.VideoCapture(videofile_path + videofile_name + videofile_ext)
 fps = cv2video.get(cv2.CAP_PROP_FPS)
+if args.fps:
+    fps = args.fps
 num_frames = int(cv2video.get(cv2.CAP_PROP_FRAME_COUNT))
 time_video = num_frames / fps
 
@@ -66,7 +82,8 @@ subprocess.call(
     ['ffmpeg', '-i', videofile_path + videofile_name + videofile_ext, '-codec:a', 'pcm_s16le', '-ac', '1', videofile_path + temp_dir + videofile_name + '.wav'])
 print('file saved')
 
-fs, data = wavfile.read(videofile_path + temp_dir + videofile_name + '.wav')
+fs = wavfile.read(videofile_path + temp_dir + videofile_name + '.wav')[0]
+data = wavfile.read(videofile_path + temp_dir + videofile_name + '.wav')[1].copy()
 maxaudio_volume = np.max(data)
 
 sounds_per_frame = math.ceil(data.shape[0] / num_frames)
@@ -74,7 +91,7 @@ sounds_per_frame = math.ceil(data.shape[0] / num_frames)
 #get frames as images
 
 subprocess.call(
-    ['ffmpeg', '-i', videofile_path + videofile_name + videofile_ext, '-qscale:v', '3', videofile_path + temp_dir + '$old_frames%06d.jpg', '-hide_banner']
+    ['ffmpeg', '-i', videofile_path + videofile_name + videofile_ext, '-qscale:v', str(args.frame_quality), videofile_path + temp_dir + '$old_frames%06d.jpg', '-hide_banner']
 )
 
 #ffmpeg -i file.mpg -r 1/1 $filename%03d.jpg
