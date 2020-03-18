@@ -213,10 +213,19 @@ new_frames = []
 
 i = 0
 curr_speed = 0
+remainders = [0,0]
+
 while i < num_frames:
     curr_frame = math.floor(i)
     curr_speed = SILENT_SPEED if silent_audio[curr_frame] else LOUD_SPEED
-    if math.floor(i + curr_speed) > next_frame[curr_frame]:
+    curr_idx = 0 if silent_audio[curr_frame] else 1
+    
+    if math.floor(i + curr_speed - remainders[curr_idx]) >= next_frame[curr_frame]:
+        remainders[curr_idx] += (next_frame[curr_frame] - i)
+        i = next_frame[curr_frame]
+    elif math.floor(i + curr_speed) >= next_frame[curr_frame]:
+        remainders[curr_idx] -= (i + curr_speed - next_frame[curr_frame])
+        new_frames.append(curr_frame)
         i = next_frame[curr_frame]
     else:
         new_frames.append(curr_frame)
@@ -224,7 +233,7 @@ while i < num_frames:
 
 for new_id, old_id in enumerate(new_frames):
     subprocess.call(
-        ['cp', FILE_PATH + TEMP_DIR + '$old_frames%06d.jpg' % (old_id + 1), FILE_PATH + TEMP_DIR + '$new_frames%06d.jpg' % (new_id + 1)]
+        ['mv', FILE_PATH + TEMP_DIR + '$old_frames%06d.jpg' % (old_id + 1), FILE_PATH + TEMP_DIR + '$new_frames%06d.jpg' % (new_id + 1)]
     )
     
 # build remastered video
