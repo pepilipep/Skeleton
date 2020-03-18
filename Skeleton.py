@@ -14,6 +14,8 @@ from scipy.io import wavfile
 
 import argparse
 
+import librosa
+
 # parse arguments
 
 parser = argparse.ArgumentParser(description='Run silent and loud parts of a video at different speeds', formatter_class=argparse.ArgumentDefaultsHelpFormatter)
@@ -31,66 +33,69 @@ args = parser.parse_args()
 
 #VIDEO INFO
 
-videofile_path = './'
-videofile_name = ''
-videofile_ext = ''
+FILE_PATH = './'
+FILE_NAME = ''
+FILE_EXT = ''
 
 videofile = args.input
 
-temp_dir = args.temp_dir
-if temp_dir[-1] != '/':
-    temp_dir += '/'
+TEMP_DIR = args.temp_dir
+
+if TEMP_DIR[-1] != '/':
+    TEMP_DIR += '/'
 
 for i in range(len(videofile) - 1, -1, -1):
     if videofile[i] == '.':
-        videofile_ext = videofile[i:]
-        videofile_name = videofile[:i]
+        FILE_EXT = videofile[i:]
+        FILE_NAME = videofile[:i]
         break
 
-for i in range(len(videofile_name) - 1, -1, -1):
-    if videofile_name[i] == '/':
-        videofile_path = videofile_name[:i]
-        videofile_name = videofile_name[i:]
+for i in range(len(FILE_NAME) - 1, -1, -1):
+    if FILE_NAME[i] == '/':
+        FILE_PATH = FILE_NAME[:i]
+        FILE_NAME = FILE_NAME[i:]
         break
 
-print(videofile_path, videofile_name, videofile_ext)
+print(FILE_PATH, FILE_NAME, FILE_EXT)
 
 #MAGICS
 
-min_sound = args.min_sound
+MIN_SOUND = args.min_sound
 
-min_time = args.min_time
+MIN_TIME = args.min_time
 
-silent_speed = args.silent_speed
+SILENT_SPEED = args.silent_speed
 
-loud_speed = args.loud_speed
+LOUD_SPEED = args.loud_speed
 
 #INIT
 
 subprocess.call(
-    ['mkdir', videofile_path + temp_dir]
+    ['mkdir', FILE_PATH + TEMP_DIR]
 )
 
 #get info
 
 
-cv2video = cv2.VideoCapture(videofile_path + videofile_name + videofile_ext)
-fps = cv2video.get(cv2.CAP_PROP_FPS)
-if args.fps:
-    fps = args.fps
-num_frames = int(cv2video.get(cv2.CAP_PROP_FRAME_COUNT))
-time_video = num_frames / fps
+cv2video = cv2.VideoCapture(FILE_PATH + FILE_NAME + FILE_EXT)
+FPS = cv2video.get(cv2.CAP_PROP_FPS)
 
-print(fps, num_frames, time_video)
+if args.fps:
+    FPS = args.fps
+
+num_frames = int(cv2video.get(cv2.CAP_PROP_FRAME_COUNT))
+time_video = num_frames / FPS
+
+print(FPS, num_frames, time_video)
 
 #get audio
 
 subprocess.call(
-    ['ffmpeg', '-i', videofile_path + videofile_name + videofile_ext, '-codec:a', 'pcm_s16le', '-ac', '1', videofile_path + temp_dir + videofile_name + '.wav'])
+    ['ffmpeg', '-i', FILE_PATH + FILE_NAME + FILE_EXT, '-codec:a', 'pcm_s16le', '-ac', '1', FILE_PATH + TEMP_DIR + FILE_NAME + '.wav'])
 print('file saved')
 
-fs = wavfile.read(videofile_path + temp_dir + videofile_name + '.wav')[0]
-data = wavfile.read(videofile_path + temp_dir + videofile_name + '.wav')[1].copy()
+FS = wavfile.read(FILE_PATH + TEMP_DIR + FILE_NAME + '.wav')[0]
+data = wavfile.read(FILE_PATH + TEMP_DIR + FILE_NAME + '.wav')[1].copy()
 maxaudio_volume = np.max(data)
 
 sounds_per_frame = math.ceil(data.shape[0] / num_frames)
@@ -98,10 +103,10 @@ sounds_per_frame = math.ceil(data.shape[0] / num_frames)
 #get frames as images
 
 subprocess.call(
-    ['ffmpeg', '-i', videofile_path + videofile_name + videofile_ext, '-qscale:v', str(args.frame_quality), videofile_path + temp_dir + '$old_frames%06d.jpg', '-hide_banner']
+    ['ffmpeg', '-i', FILE_PATH + FILE_NAME + FILE_EXT, '-qscale:v', str(args.frame_quality), FILE_PATH + TEMP_DIR + '$old_frames%06d.jpg', '-hide_banner']
 )
 
-#ffmpeg -i file.mpg -r 1/1 $filename%03d.jpg
+#ffmpeg -i file.mpg -qscale:v 3 $filename%03d.jpg -hide_banner
 
 #algorithm
 
@@ -113,9 +118,9 @@ sound_split_by_frame = np.absolute(np.reshape(data, (num_frames, sounds_per_fram
 
 total_sound_by_frames = np.max(sound_split_by_frame, axis=-1)
 
-wanted = total_sound_by_frames >= min_sound * maxaudio_volume
+wanted = total_sound_by_frames >= MIN_SOUND * maxaudio_volume
 
-print(np.sum(wanted))
+print('loud frames: ', np.sum(wanted))
 
 cuts = []
 if wanted[0]:
@@ -133,13 +138,13 @@ final_cuts = []
 mid_cuts.append(cuts[0])
 
 for i in range(len(cuts) - 1):
-    if cuts[i + 1][0] - mid_cuts[-1][1] < min_time * fps:
+    if cuts[i + 1][0] - mid_cuts[-1][1] < MIN_TIME * FPS:
         mid_cuts[-1][1] = cuts[i + 1][1]
     else:
         mid_cuts.append(cuts[i + 1])
 
 for cut in mid_cuts:
-    if cut[1] - cut[0] >= min_time * fps:
+    if cut[1] - cut[0] >= MIN_TIME * FPS:
         final_cuts.append(cut)
 
 # find wanted frames
@@ -152,25 +157,24 @@ for cut in final_cuts:
         loud_audio[frame] = True
         silent_audio[frame] = False
 
-next_frame = np.zeros(num_frames)
-next_frame[-1] = num_frames
-for i in range(num_frames - 2, -1, -1):
-    if loud_audio[i] ^ loud_audio[i + 1]:
-        next_frame[i] = i + 1
-    else:
-        next_frame[i] = next_frame[i + 1]
-
 silent_frames = np.extract(silent_audio, range(num_frames))
+
+# some useful info
+
+appr_time = (silent_frames.shape[0] / SILENT_SPEED + (num_frames - silent_frames.shape[0]) / LOUD_SPEED ) / FPS
+print('approximate length of new video: %d minutes, %d seconds' % (appr_time / 60, appr_time % 60))
 
 # build new audio frames
 
+print('building new audio...')
+
 loud_audio_sound_frames = np.repeat(loud_audio, sounds_per_frame + 1)
 
-next_audio_frame = np.zeros(data.shape[0])
+next_audio_frame = np.zeros(data.shape[0], np.int32)
 next_audio_frame[-1] = data.shape[0]
 for i in range(data.shape[0] - 2, -1, -1):
     if loud_audio_sound_frames[i] ^ loud_audio_sound_frames[i + 1]:
-        next_audio_frame[i] = i + 1
+        next_audio_frame[i] = int(i + 1)
     else:
         next_audio_frame[i] = next_audio_frame[i + 1]
 
@@ -179,21 +183,29 @@ prev_frame = -1
 new_audio_frames = []
 
 i = 0
-curr_speed = 0
 while i < data.shape[0]:
-    curr_frame = math.floor(i)
-    curr_speed = loud_speed if loud_audio_sound_frames[curr_frame] else silent_speed
-    if math.floor(i + curr_speed) > next_audio_frame[curr_frame]:
-        i = next_audio_frame[curr_frame]
-    else:
-        new_audio_frames.append(data[curr_frame])
-        i += curr_speed
+    curr_speed = LOUD_SPEED if loud_audio_sound_frames[i] else SILENT_SPEED
+    new_audio_frames.extend(librosa.effects.time_stretch(data[i:next_audio_frame[i]].astype(np.float), curr_speed).astype(np.int16))
+    i = next_audio_frame[i]
 
 newAudio = np.asarray(new_audio_frames)
 
-wavfile.write(videofile_path + temp_dir + 'newAudio.wav', fs, newAudio)
+# write final audio
+
+wavfile.write(FILE_PATH + TEMP_DIR + 'newAudio.wav', FS, newAudio)
 
 # build new video frames
+
+print('building frames for the new video...')
+
+next_frame = np.zeros(num_frames)
+next_frame[-1] = num_frames
+for i in range(num_frames - 2, -1, -1):
+    if loud_audio[i] ^ loud_audio[i + 1]:
+        next_frame[i] = i + 1
+    else:
+        next_frame[i] = next_frame[i + 1]
+
 prev_frame = -1
 frame_id = 1
 
@@ -203,24 +215,22 @@ i = 0
 curr_speed = 0
 while i < num_frames:
     curr_frame = math.floor(i)
-    curr_speed = silent_speed if silent_audio[curr_frame] else loud_speed
+    curr_speed = SILENT_SPEED if silent_audio[curr_frame] else LOUD_SPEED
     if math.floor(i + curr_speed) > next_frame[curr_frame]:
         i = next_frame[curr_frame]
     else:
         new_frames.append(curr_frame)
         i += curr_speed
 
-print('building frames for the new video...')
-
 for new_id, old_id in enumerate(new_frames):
     subprocess.call(
-        ['cp', videofile_path + temp_dir + '$old_frames%06d.jpg' % (old_id + 1), videofile_path + temp_dir + '$new_frames%06d.jpg' % (new_id + 1)]
+        ['cp', FILE_PATH + TEMP_DIR + '$old_frames%06d.jpg' % (old_id + 1), FILE_PATH + TEMP_DIR + '$new_frames%06d.jpg' % (new_id + 1)]
     )
     
 # build remastered video
 
 subprocess.call(
-    ['ffmpeg', '-framerate', str(fps), '-i', videofile_path + temp_dir + '$new_frames%06d.jpg', '-i', videofile_path + temp_dir + 'newAudio.wav', '-strict', '-2', videofile_path + videofile_name + '_remastered' + videofile_ext]
+    ['ffmpeg', '-framerate', str(FPS), '-i', FILE_PATH + TEMP_DIR + '$new_frames%06d.jpg', '-i', FILE_PATH + TEMP_DIR + 'newAudio.wav', '-strict', '-2', FILE_PATH + FILE_NAME + '_remastered' + FILE_EXT]
 )
 
 # ffmpeg -framerate fps -i temp/$new_frames%06d.jpg -i temp/newAudio.wav -strict -2 "blank_remastered.mp4"
@@ -229,5 +239,5 @@ subprocess.call(
 
 print('do you want to remove the temporary files?')
 subprocess.call(
-    ['rm', '-r', '-I', videofile_path + temp_dir]
+    ['rm', '-r', '-I', FILE_PATH + TEMP_DIR]
 )
