@@ -1,19 +1,12 @@
 import subprocess
-
 import numpy as np
-
 import subprocess
 import os
 import sys
-
 import cv2
-
 import math
-
 from scipy.io import wavfile
-
 import argparse
-
 import librosa
 
 # parse arguments
@@ -68,14 +61,13 @@ SILENT_SPEED = args.silent_speed
 
 LOUD_SPEED = args.loud_speed
 
-#INIT
+# make temporary directory
 
 subprocess.call(
     ['mkdir', FILE_PATH + TEMP_DIR]
 )
 
 #get info
-
 
 cv2video = cv2.VideoCapture(FILE_PATH + FILE_NAME + FILE_EXT)
 FPS = cv2video.get(cv2.CAP_PROP_FPS)
@@ -88,7 +80,7 @@ time_video = num_frames / FPS
 
 print(FPS, num_frames, time_video)
 
-#get audio
+#get audio and audio info
 
 subprocess.call(
     ['ffmpeg', '-i', FILE_PATH + FILE_NAME + FILE_EXT, '-codec:a', 'pcm_s16le', '-ac', '1', FILE_PATH + TEMP_DIR + FILE_NAME + '.wav'])
@@ -164,7 +156,7 @@ silent_frames = np.extract(silent_audio, range(num_frames))
 appr_time = (silent_frames.shape[0] / SILENT_SPEED + (num_frames - silent_frames.shape[0]) / LOUD_SPEED ) / FPS
 print('approximate length of new video: %d minutes, %d seconds' % (appr_time / 60, appr_time % 60))
 
-# build new audio frames
+# build new audio
 
 print('building new audio...')
 
@@ -193,6 +185,15 @@ newAudio = np.asarray(new_audio_frames)
 # write final audio
 
 wavfile.write(FILE_PATH + TEMP_DIR + 'newAudio.wav', FS, newAudio)
+
+# free memory
+
+new_audio_frames = None
+next_audio_frame = None
+newAudio = None
+data = None
+loud_audio_sound_frames = None
+sound_split_by_frame = None
 
 # build new video frames
 
@@ -233,13 +234,13 @@ while i < num_frames:
 
 for new_id, old_id in enumerate(new_frames):
     subprocess.call(
-        ['mv', FILE_PATH + TEMP_DIR + '$old_frames%06d.jpg' % (old_id + 1), FILE_PATH + TEMP_DIR + '$new_frames%06d.jpg' % (new_id + 1)]
+        ['cp', FILE_PATH + TEMP_DIR + '$old_frames%06d.jpg' % (old_id + 1), FILE_PATH + TEMP_DIR + '$new_frames%06d.jpg' % (new_id + 1)]
     )
     
 # build remastered video
 
 subprocess.call(
-    ['ffmpeg', '-framerate', str(FPS), '-i', FILE_PATH + TEMP_DIR + '$new_frames%06d.jpg', '-i', FILE_PATH + TEMP_DIR + 'newAudio.wav', '-strict', '-2', FILE_PATH + FILE_NAME + '_remastered' + FILE_EXT]
+    ['ffmpeg', '-framerate', str(FPS), '-i', FILE_PATH + TEMP_DIR + '$new_frames%06d.jpg', '-i', FILE_PATH + TEMP_DIR + 'newAudio.wav', '-strict', '-2', FILE_PATH + FILE_NAME + '_remastered' + '.mp4']
 )
 
 # ffmpeg -framerate fps -i temp/$new_frames%06d.jpg -i temp/newAudio.wav -strict -2 "blank_remastered.mp4"
